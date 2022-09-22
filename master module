@@ -1,0 +1,168 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use ieee.numeric_std.all;
+use ieee.numeric_std_unsigned;
+
+entity master is
+
+
+port(
+i_sys_clk         : in std_logic                               ;
+o_spi_clk         : out std_logic  :='0'                       ;
+i_miso            : in std_logic                               ;
+o_mosi            : out std_logic   :='0'                      ;
+o_mosi_reg        : in std_logic_vector(7 downto 0)            ;
+i_write_bus       : in std_logic_vector(7 downto 0)            ;
+o_read_bus        : out std_logic_vector(7 downto 0):=x"00"    ;               
+i_address_bus     : in std_logic_vector(1 downto 0)            ;               
+--i_miso_reg      : in std_logic_vector(7 downto 0):=      ;     
+
+
+i_we              : in  std_logic                        ; 
+i_re              : in  std_logic                      
+                
+                      
+                    
+);
+end master;
+
+architecture Behavioral of master is
+type statetype is(idle, start, transfer, stop);    
+signal r_tx: std_logic_vector(7 downto 0)   :=x"00"         ;
+signal r_rx : std_logic_vector(7 downto 0)  :=x"00"         ;
+signal r_regc : std_logic_vector(7 downto 0):=x"02"         ;
+
+signal s_state: statetype:=idle           ; 
+signal s_temp_s_clk: std_logic:='1'       ; 
+signal s_busy: std_logic:='0'             ; 
+signal s_done: std_logic:='0'             ; 
+signal s_clk_divider: integer             ; 
+signal s_divider: integer:=2              ; 
+
+
+begin
+----------------user_logic---------------------------
+process(i_sys_clk,i_write_bus)
+
+begin 
+if rising_edge(i_sys_clk) then 
+    if i_address_bus="00" then
+        if i_we='1' then         
+            r_regc<=i_write_bus;
+            s_divider<=to_integer(unsigned(r_regc));
+            
+        elsif i_re='1' then 
+            o_read_bus<=r_regc;                
+        end if;
+     
+    elsif i_address_bus="01" then
+    
+         if i_we='1' then 
+         
+             if s_busy='0' then 
+                 r_tx<=i_write_bus;
+                 s_done<='1';                
+              end if; 
+                                
+         end if;
+         
+    elsif i_address_bus="10" then
+         if i_re='1'then         
+             o_read_bus<=r_rx;
+             s_done<='1'; 
+        else 
+            s_done<='0';
+            
+         end if; 
+ 
+    end if; 
+    end if; 
+end process;
+
+-------------------master-slave-------------------------------
+process(s_temp_s_clk)
+variable cntr: integer:=0;
+begin 
+if rising_edge(s_temp_s_clk) then 
+case s_state is	
+	when idle=>       	
+      
+        if s_done='1' then 
+                        ------lsb bit of the tx reg send to mosi 
+            s_state<=start;
+        elsif s_done='0' then 
+           o_mosi<='0';           
+           s_state<=idle;
+        end if;       
+        
+	when start=>	
+		s_busy<='1';                    --------busy='1' means transfer has started
+		s_state<=transfer;
+		o_mosi<=r_tx(0);
+	when transfer=>
+		if cntr<7 then                  --------8 bit data transfer
+            o_mosi<=r_tx(cntr+1);
+            r_rx(cntr)<=i_miso;
+            cntr:=cntr+1;
+		elsif cntr=7 then 
+            r_rx(7)<=i_miso;            
+            cntr:=0;            
+            s_busy<='0';                ----------since transfer is over, busy is '0'
+            o_mosi<='0';
+            		
+            s_state<=stop;
+		end if;
+		
+	when stop=>
+	   if i_we='1' then  
+		s_state<=idle;
+	   else 
+		s_state<=stop;
+	end if;
+		
+end case;
+end if;
+end process;
+	
+-------------------------------
+-----------------temp spi clk------------------------
+process(i_sys_clk)
+variable cntr: natural:=0;
+begin
+s_clk_divider<=s_divider;
+
+if rising_edge(i_sys_clk) then
+
+if cntr=s_clk_divider then 
+     s_temp_s_clk<=not s_temp_s_clk;
+     cntr:=0;
+    
+elsif cntr<s_clk_divider then  
+      cntr:=cntr+1;
+end if;  
+end if;
+
+end process;
+-------------------spi clock------------------------
+process(i_sys_clk)
+variable cntr: natural:=0;
+begin
+
+if falling_edge(i_sys_clk) then
+
+if cntr=s_clk_divider then 
+     cntr:=0;
+     if s_busy='1' then 
+        o_spi_clk<=s_temp_s_clk ;
+     elsif s_busy='0' then 
+        o_spi_clk<='0';   
+     end if;
+    
+elsif cntr<s_clk_divider then  
+      cntr:=cntr+1;
+end if;  
+end if;
+end process;
+
+end Behavioral;	
+
