@@ -1,0 +1,182 @@
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+
+entity slave_tb is
+
+end slave_tb;
+
+architecture Behavioral of slave_tb is
+ 
+component slave is
+port(
+i_sys_clk         : in std_logic                         ;
+i_spi_clk         : in std_logic                         ;
+
+o_miso            : out std_logic                        ;
+i_mosi            : in std_logic                         ;                           
+i_write_bus       : in std_logic_vector(7 downto 0)      ;
+o_read_bus        : out std_logic_vector(7 downto 0)     ;               
+              
+i_we              : in  std_logic                        ; 
+i_re              : in  std_logic                         
+                                                                
+); 
+end component;   
+   
+signal i_write_bus          :std_logic_vector(7 downto 0) :=x"00" ;  
+signal o_read_bus           :std_logic_vector(7 downto 0)         ;  
+ 
+signal i_we                 :std_logic                    :='0'   ;    
+signal i_re                 :std_logic                    :='0'   ;    
+   
+signal s_busy               :std_logic                    :='0'   ;    
+
+signal i_mosi               :std_logic                     :='0'  ;  
+signal o_miso               :std_logic                            ;         
+   
+signal i_sys_clk            :std_logic                    :='0'   ;     
+signal i_spi_clk            :std_logic                    :='0'   ;     
+signal o_miso_reg           :std_logic_vector(7 downto 0) :=x"00" ;     
+signal i_mosi_reg           :std_logic_vector(7 downto 0) :=x"00" ;     
+signal s_temp_s_clk         :std_logic:='0'                       ;
+signal s_clk_divider        :integer                              ; 
+signal s_divider            :integer:=2                           ;   
+
+begin
+
+uut: slave
+port map(                    
+i_write_bus   =>i_write_bus   ,
+o_read_bus    =>o_read_bus    ,
+
+i_we          =>i_we          ,
+i_re          =>i_re          ,
+
+
+i_mosi        =>i_mosi        ,
+
+o_miso        =>o_miso        ,
+                         
+i_sys_clk     =>i_sys_clk   ,             
+i_spi_clk     =>i_spi_clk                
+);
+
+p_CLK_GEN : process begin
+i_sys_clk <= '0'           ;
+wait for 5 ns              ;
+i_sys_clk <= '1'           ;
+wait for 5 ns              ;
+end process p_CLK_GEN      ;
+
+
+------------------------------------------
+process
+begin 
+
+--------write operation-------------------
+i_write_bus<=x"cc"  ;
+i_we <= '1'         ; wait until falling_edge(i_sys_clk);  -------if you dont toggle i_we, wrting will continous as write bus change------------   
+i_we <= '0'         ;
+
+--------write operation-----------------
+
+--i_write_bus<=x"b4"    ;
+--wait until falling_edge(i_spi_clk);
+--i_we <= '1'           ;
+-- wait until rising_edge(i_spi_clk);
+--i_we <= '0'           ;
+
+wait;
+end process;
+----------------------------------------------------------------------
+process(i_sys_clk)
+variable cntr: integer:=0;
+begin
+if rising_edge(i_sys_clk) then 
+    cntr:=cntr+1;
+if 50<cntr and cntr<97 then      
+     s_busy<='1';
+else     
+   s_busy<='0';   
+        
+end if;
+end if;
+end process;
+------------------i_miso_testbench---falling edge---------------------
+process(i_spi_clk)
+variable cntr: integer:=0;
+begin
+if rising_edge(i_spi_clk) then 
+    
+    if cntr<7 then       
+       o_miso_reg(cntr)<=o_miso; 
+        cntr:=cntr+1;
+    elsif cntr=7 then     
+       o_miso_reg(7) <=o_miso;   
+       cntr:=0;
+       i_re<='1';     
+    end if; 
+else
+i_re<='0';
+end if; 
+end process;
+-------------------------------------------------------------------------
+process(i_spi_clk)
+variable cntr: integer:=0;
+begin
+i_mosi_reg<=x"15"     ; 
+if rising_edge(i_spi_clk) then 
+
+if cntr<7 then    
+    i_mosi<=i_mosi_reg(cntr);
+    cntr:=cntr+1;
+elsif cntr=7 then  
+    i_mosi<=i_mosi_reg(7);   
+    cntr:=0;  
+end if;
+
+end if;
+end process;
+----------------------------------------
+process(i_sys_clk)
+variable cntr: natural:=0;
+begin
+s_clk_divider<=s_divider;
+
+if falling_edge(i_sys_clk) then
+
+if cntr=s_clk_divider then 
+     s_temp_s_clk<=not s_temp_s_clk;
+     cntr:=0;
+    
+elsif cntr<s_clk_divider then  
+      cntr:=cntr+1;
+end if;  
+end if;
+
+end process;
+-------------------spi clock------------------------
+process(i_sys_clk)
+variable cntr: natural:=0;
+begin
+
+if falling_edge(i_sys_clk) then 
+
+
+if cntr=s_clk_divider then 
+
+     cntr:=0;
+     if s_busy='1' then 
+        i_spi_clk<=not s_temp_s_clk ;
+     elsif s_busy='0' then 
+        i_spi_clk<='0';   
+     end if;
+    
+elsif cntr<s_clk_divider then  
+      cntr:=cntr+1;
+end if;  
+end if;
+end process;
+end  Behavioral     ;
